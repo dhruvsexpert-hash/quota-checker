@@ -4,5 +4,8 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ~/.antigravity_quota_token.json:/root/.antigravity_quota_token.json
+      - token_data:/token_store
     restart: unless-stopped
+
+volumes:
+  token_data:

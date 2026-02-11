@@ -34,7 +34,7 @@ FETCH_AVAILABLE_MODELS_PATH = '/v1internal:fetchAvailableModels'
 CALLBACK_PATH = '/callback'
 # --- End Constants ---
 
-TOKEN_FILE = os.path.expanduser('~/.antigravity_quota_token.json')
+TOKEN_FILE = os.environ.get('TOKEN_FILE_PATH', '/token_store/antigravity_quota_token.json')
 SERVER_PORT = 8000
 
 # ============================================================
@@ -369,6 +369,17 @@ async def get_quota():
 
 @app.post("/api/logout")
 async def logout():
+    # Revoke the token with Google before clearing locally
+    access_token = token_manager.access_token
+    if access_token:
+        try:
+            requests.post(
+                'https://oauth2.googleapis.com/revoke',
+                params={'token': access_token},
+                headers={'Content-Type': 'application/x-www-form-urlencoded'}
+            )
+        except requests.exceptions.RequestException:
+            pass  # Best-effort revocation
     token_manager.clear_tokens()
     return {"ok": True}
 
