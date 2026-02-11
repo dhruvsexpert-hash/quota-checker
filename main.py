@@ -1,4 +1,5 @@
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -14,7 +15,7 @@ from pathlib import Path
 import requests
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 
 # --- Constants from src/auth/constants.ts ---
 GOOGLE_CLIENT_ID = '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com'
@@ -363,6 +364,32 @@ async def get_quota():
     if payload is None:
         return JSONResponse({"error": "Not authenticated"}, status_code=401)
     return payload
+
+
+# ---- SSE quota stream ----
+
+async def quota_event_generator():
+    """Yield SSE events with quota data every 5 seconds."""
+    while True:
+        payload = checker.get_quota_payload()
+        if payload is None:
+            yield f"event: auth_error\ndata: {{\"error\": \"Not authenticated\"}}\n\n"
+            return  # Close the stream on auth failure
+        yield f"data: {json.dumps(payload)}\n\n"
+        await asyncio.sleep(5)
+
+
+@app.get("/api/quota/stream")
+async def quota_stream():
+    return StreamingResponse(
+        quota_event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ---- Logout ----
