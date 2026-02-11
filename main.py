@@ -12,10 +12,12 @@ import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 
+import asyncio
+
 import requests
 import uvicorn
-from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 # --- Constants from src/auth/constants.ts ---
 GOOGLE_CLIENT_ID = '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com'
@@ -366,30 +368,32 @@ async def get_quota():
     return payload
 
 
-# ---- SSE quota stream ----
+# ---- WebSocket endpoint ----
 
-async def quota_event_generator():
-    """Yield SSE events with quota data every 5 seconds."""
-    while True:
-        payload = checker.get_quota_payload()
-        if payload is None:
-            yield f"event: auth_error\ndata: {{\"error\": \"Not authenticated\"}}\n\n"
-            return  # Close the stream on auth failure
-        yield f"data: {json.dumps(payload)}\n\n"
-        await asyncio.sleep(5)
+@app.websocket("/ws/quota")
+async def ws_quota(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            # Send quota data
+            payload = checker.get_quota_payload()
+            if payload is None:
+                await websocket.send_json({"error": "not_authenticated"})
+                await websocket.close(code=4001)
+                return
+            await websocket.send_json(payload)
 
-
-@app.get("/api/quota/stream")
-async def quota_stream():
-    return StreamingResponse(
-        quota_event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+            # Wait up to 5s, but also listen for client messages (e.g. "refresh")
+            try:
+                msg = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
+                if msg == "refresh":
+                    continue  # immediately loop back and send fresh data
+            except asyncio.TimeoutError:
+                continue  # normal 5s tick
+    except WebSocketDisconnect:
+        pass  # client disconnected
+    except Exception:
+        pass  # catch-all for broken connections
 
 
 # ---- Logout ----
