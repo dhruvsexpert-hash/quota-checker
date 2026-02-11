@@ -1,2 +1,2 @@
-#Antigravit quota-checker
+#Antigravity quota-checker
 
